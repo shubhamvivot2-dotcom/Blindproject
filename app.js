@@ -560,11 +560,11 @@
           switchTab(navTab, { announce: false, syncTopNav: false });
         }
 
-        if (scrollTargetId) {
-          const targetEl = document.getElementById(scrollTargetId);
-          if (targetEl) {
-            targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
+        const targetEl =
+          (navTab && document.getElementById(`panel-${navTab}`)) ||
+          (scrollTargetId && document.getElementById(scrollTargetId));
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       });
     });
@@ -634,6 +634,8 @@
         pillT2S.classList.add("active");
         pillS2T.classList.remove("active");
         switchTab("translator", { announce: false });
+        const trPanel = document.getElementById("panel-translator");
+        if (trPanel) trPanel.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
 
@@ -742,6 +744,15 @@
       btnAltCustom.addEventListener("click", () => {
         const openModalBtn = document.getElementById("btn-open-custom-sign");
         if (openModalBtn) openModalBtn.click();
+      });
+    }
+
+    const pipeStepAvatar = document.getElementById("pipe-step-avatar");
+    if (pipeStepAvatar) {
+      pipeStepAvatar.addEventListener("click", () => {
+        switchTab("translator", { announce: false });
+        const trPanel = document.getElementById("panel-translator");
+        if (trPanel) trPanel.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
 
@@ -933,7 +944,15 @@
     const tabButtons = document.querySelectorAll(".nav-tab");
     tabButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
-        switchTab(btn.dataset.tab, { announce: false });
+        const tab = btn.dataset.tab;
+        switchTab(tab, { announce: false });
+        const targetPanel = document.getElementById(`panel-${tab}`);
+        if (targetPanel) {
+          const rect = targetPanel.getBoundingClientRect();
+          if (rect.top < 60 || rect.top > window.innerHeight * 0.75) {
+            targetPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }
       });
     });
   }
@@ -945,6 +964,18 @@
       state.stageTimer = null;
       const playBtn = document.getElementById("btn-stage-play");
       if (playBtn) playBtn.textContent = "▶ Play Avatar";
+    }
+
+    // Stop active camera stream when leaving camera tab to prevent background processing and stray events
+    if (tabName !== "camera" && state.cameraActive) {
+      stopWebcam();
+    }
+
+    // Stop command mic listening when switching tabs to prevent stray audio feedback
+    if (state.cmdRecognition && state.isCmdListening) {
+      try {
+        state.cmdRecognition.stop();
+      } catch (e) {}
     }
 
     state.activeTab = tabName;
@@ -3295,12 +3326,16 @@
       karaokeEl.textContent = `Word ${state.currentStageIndex + 1} of ${state.translatedSequence.length}: ${signObj.word}`;
     }
 
+    const strip = document.getElementById("isl-sequence-strip");
     const cards = document.querySelectorAll(".seq-card");
     cards.forEach((c, idx) => {
       const isActive = idx === state.currentStageIndex;
       c.classList.toggle("active", isActive);
-      if (isActive && c.scrollIntoView) {
-        c.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      if (isActive && strip) {
+        const cardLeft = c.offsetLeft - strip.offsetLeft;
+        const cardWidth = c.offsetWidth;
+        const stripWidth = strip.clientWidth;
+        strip.scrollTo({ left: Math.max(0, cardLeft - (stripWidth - cardWidth) / 2), behavior: "smooth" });
       }
     });
 
@@ -3659,8 +3694,8 @@
       card.innerHTML = `
         <div>
           <div class="dict-card-top">
-            <div class="dict-svg-thumb" aria-hidden="true">${window.renderISLAvatarSVG(sign)}</div>
-            <div>
+            <div class="dict-svg-thumb" role="button" tabindex="0" aria-label="View 3D Avatar for ${sign.word} on Stage" title="Click to view 3D Avatar for ${sign.word} on Stage">${window.renderISLAvatarSVG(sign)}</div>
+            <div class="dict-card-info">
               <span class="badge-hands">${sign.isCustom ? "✨ Custom • " : ""}${sign.hands}</span>
               <h3 class="dict-card-title">${sign.emoji} ${sign.word}</h3>
               <p class="stage-meaning">"${sign.spokenPhrase}"</p>
@@ -3682,6 +3717,26 @@
         </div>
       `;
 
+      const openStage = () => {
+        state.translatedSequence = [sign];
+        state.lastTranslatedText = sign.word;
+        state.currentStageIndex = 0;
+        switchTab("translator", { announce: false });
+        renderSequenceStrip();
+        renderActiveStageSign({ speakTactile: true });
+      };
+
+      const thumbEl = card.querySelector(".dict-svg-thumb");
+      if (thumbEl) {
+        thumbEl.addEventListener("click", openStage);
+        thumbEl.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openStage();
+          }
+        });
+      }
+
       card.querySelector(".btn-hear-regional").addEventListener("click", () => {
         window.audioEngine.playEarcon("sign_detected");
         const mode = state.signOutputLang === "en" ? "multi_top" : state.signOutputLang;
@@ -3693,14 +3748,7 @@
         window.audioEngine.speakSign(sign, { interrupt: true, assertive: true });
       });
 
-      card.querySelector(".btn-open-stage").addEventListener("click", () => {
-        state.translatedSequence = [sign];
-        state.lastTranslatedText = sign.word;
-        state.currentStageIndex = 0;
-        switchTab("translator", { announce: false });
-        renderSequenceStrip();
-        renderActiveStageSign({ speakTactile: true });
-      });
+      card.querySelector(".btn-open-stage").addEventListener("click", openStage);
 
       grid.appendChild(card);
     });
@@ -4056,6 +4104,8 @@
     };
 
     state.cmdRecognition.onresult = (event) => {
+      // Discard audio while TTS is actively speaking to prevent echo / loopback triggering commands
+      if (window.audioEngine && (window.audioEngine.isSpeaking || window.audioEngine._isPlayingClip)) return;
       const transcript = event.results[0][0].transcript.toLowerCase().trim();
       handleVoiceCommand(transcript);
     };
@@ -4134,19 +4184,21 @@
       return;
     }
     if (
-      cmd.includes("no text") ||
-      cmd.includes("without text") ||
-      cmd.includes("bina text") ||
-      cmd.includes("बिना टेक्स्ट")
+      cmd === "no text" ||
+      cmd.includes("no text mode") ||
+      cmd.includes("without text mode") ||
+      cmd.includes("bina text mode") ||
+      cmd.includes("बिना टेक्स्ट मोड")
     ) {
       activateCommunicationMode("no-text");
       return;
     }
     if (
-      cmd.includes("sign language") ||
-      cmd.includes("sign langue") ||
-      cmd.includes("sanketik") ||
-      cmd.includes("सांकेतिक")
+      cmd === "sign language" ||
+      cmd.includes("sign language mode") ||
+      cmd.includes("open sign language") ||
+      cmd.includes("sanketik bhasha mode") ||
+      cmd.includes("सांकेतिक भाषा मोड")
     ) {
       activateCommunicationMode("sign-language");
       return;
@@ -4234,8 +4286,19 @@
       speakOrientationGuide();
       return;
     }
-    if (cmd.includes("camera") || cmd.includes("sign to speech")) {
+    if (
+      cmd === "camera" ||
+      cmd.includes("open camera") ||
+      cmd.includes("switch to camera") ||
+      cmd.includes("start camera") ||
+      cmd.includes("go to camera") ||
+      cmd.includes("show camera") ||
+      cmd.includes("sign to speech") ||
+      cmd.includes("कैमरा चालू")
+    ) {
       switchTab("camera");
+      const camEl = document.getElementById("panel-camera");
+      if (camEl) camEl.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (cmd.includes("dictionary") || cmd.includes("learn")) {
@@ -4304,8 +4367,11 @@
 
       switch (e.key) {
         case "1":
-          e.preventDefault();
-          switchTab("camera");
+          // Only switch to camera if explicitly using Alt+1 or user is not active on the translator panel
+          if (e.altKey || (!e.ctrlKey && !e.metaKey && state.activeTab !== "translator")) {
+            e.preventDefault();
+            switchTab("camera");
+          }
           break;
         case "2":
           e.preventDefault();
@@ -4318,12 +4384,6 @@
         case "4":
           e.preventDefault();
           switchTab("assist");
-          break;
-        case " ":
-          if (e.target === document.body || e.target.id === "main-content") {
-            e.preventDefault();
-            toggleVoiceCommandMic();
-          }
           break;
         case "w":
         case "W": {

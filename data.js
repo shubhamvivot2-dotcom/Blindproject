@@ -1687,6 +1687,12 @@ function renderDoraemonCartoonAvatarSVG(signObj) {
           <stop offset="70%" stop-color="#f1f5f9"/>
           <stop offset="100%" stop-color="#cbd5e1"/>
         </radialGradient>
+        <radialGradient id="avSkinGrad" cx="38%" cy="32%" r="68%">
+          <stop offset="0%" stop-color="#fed7aa"/>
+          <stop offset="42%" stop-color="#fba86b"/>
+          <stop offset="82%" stop-color="#d97706"/>
+          <stop offset="100%" stop-color="#9a3412"/>
+        </radialGradient>
         <filter id="dorShadow" x="-15%" y="-15%" width="130%" height="130%">
           <feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.55"/>
         </filter>
@@ -1827,6 +1833,12 @@ function renderCyberRobotAvatarSVG(signObj) {
         <filter id="robGlow" x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#06b6d4" flood-opacity="0.8"/>
         </filter>
+        <radialGradient id="avSkinGrad" cx="38%" cy="32%" r="68%">
+          <stop offset="0%" stop-color="#a5f3fc"/>
+          <stop offset="42%" stop-color="#38bdf8"/>
+          <stop offset="82%" stop-color="#0284c7"/>
+          <stop offset="100%" stop-color="#0369a1"/>
+        </radialGradient>
       </defs>
 
       <rect width="200" height="200" rx="16" fill="url(#robBg)"/>
